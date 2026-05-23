@@ -30,7 +30,7 @@ func main() {
 	messageRepo := repositories.NewMessageRepository(db)
 
 	// Initialize Services
-	userService := services.NewUserService(userRepo)
+	userService := services.NewUserService(userRepo, chatRequestRepo, conversationRepo)
 	chatRequestService := services.NewChatRequestService(chatRequestRepo, conversationRepo, userRepo)
 	conversationService := services.NewConversationService(conversationRepo, messageRepo, userRepo)
 

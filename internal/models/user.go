@@ -20,6 +20,9 @@ type User struct {
 	BlockedUsers   []primitive.ObjectID `bson:"blocked_users" json:"blocked_users"`
 	CreatedAt      time.Time            `bson:"created_at" json:"created_at"`
 	UpdatedAt      time.Time            `bson:"updated_at" json:"updated_at"`
+
+	// Relationship flags (populated dynamically based on current user session)
+	RequestStatus  string               `bson:"-" json:"request_status,omitempty"`
 }
 
 // RegisterRequest is the data required to register a new user.

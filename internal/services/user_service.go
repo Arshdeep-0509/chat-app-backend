@@ -16,24 +16,102 @@ import (
 type UserService interface {
 	Register(ctx context.Context, req *models.RegisterRequest) (*models.User, error)
 	Login(ctx context.Context, req *models.LoginRequest) (string, error)
-	ListUsers(ctx context.Context, search string) ([]*models.User, error)
+	ListUsers(ctx context.Context, loggedInUserID string, search string) ([]*models.User, error)
 	GetUserProfile(ctx context.Context, userID string) (*models.User, error)
 }
 
 type userService struct {
-	userRepo repositories.UserRepository
+	userRepo         repositories.UserRepository
+	chatRequestRepo  repositories.ChatRequestRepository
+	conversationRepo repositories.ConversationRepository
 }
 
 // NewUserService creates a new instance of UserService
-func NewUserService(userRepo repositories.UserRepository) UserService {
+func NewUserService(
+	userRepo repositories.UserRepository,
+	chatRequestRepo repositories.ChatRequestRepository,
+	conversationRepo repositories.ConversationRepository,
+) UserService {
 	return &userService{
-		userRepo: userRepo,
+		userRepo:         userRepo,
+		chatRequestRepo:  chatRequestRepo,
+		conversationRepo: conversationRepo,
 	}
 }
 
-// ListUsers retrieves all users matching the search query
-func (s *userService) ListUsers(ctx context.Context, search string) ([]*models.User, error) {
-	return s.userRepo.FindAll(ctx, search)
+// ListUsers retrieves all users matching the search query, populating relationship status with loggedInUserID
+func (s *userService) ListUsers(ctx context.Context, loggedInUserID string, search string) ([]*models.User, error) {
+	users, err := s.userRepo.FindAll(ctx, search)
+	if err != nil {
+		return nil, err
+	}
+
+	if loggedInUserID == "" {
+		return users, nil
+	}
+
+	loggedInObjID, err := primitive.ObjectIDFromHex(loggedInUserID)
+	if err != nil {
+		// Logged in user ID is invalid, just return users without status
+		return users, nil
+	}
+
+	// Fetch all conversations for the logged in user
+	conversations, err := s.conversationRepo.FindAllForUser(ctx, loggedInObjID)
+	if err != nil {
+		conversations = nil
+	}
+
+	// Create a map to quickly look up conversation existence per other participant ID
+	convMap := make(map[primitive.ObjectID]bool)
+	for _, conv := range conversations {
+		for _, participant := range conv.Participants {
+			if participant != loggedInObjID {
+				convMap[participant] = true
+			}
+		}
+	}
+
+	// Fetch incoming and outgoing chat requests involving the logged in user
+	incomingRequests, err := s.chatRequestRepo.FindList(ctx, loggedInObjID, "incoming")
+	if err != nil {
+		incomingRequests = nil
+	}
+	outgoingRequests, err := s.chatRequestRepo.FindList(ctx, loggedInObjID, "outgoing")
+	if err != nil {
+		outgoingRequests = nil
+	}
+
+	// Create a map to quickly look up chat request status by other participant ID
+	reqMap := make(map[primitive.ObjectID]string)
+	for _, req := range incomingRequests {
+		reqMap[req.SenderID] = req.Status
+	}
+	for _, req := range outgoingRequests {
+		reqMap[req.ReceiverID] = req.Status
+	}
+
+	// Populate status fields for each user
+	for _, u := range users {
+		// Skip self if shown
+		if u.ID == loggedInObjID {
+			continue
+		}
+
+		status := "pending"
+		// If there is an active conversation, it's accepted.
+		if convMap[u.ID] {
+			status = "accepted"
+		} else if reqStatus, ok := reqMap[u.ID]; ok {
+			if reqStatus == "accepted" {
+				status = "accepted"
+			}
+		}
+
+		u.RequestStatus = status
+	}
+
+	return users, nil
 }
 
 // GetUserProfile retrieves complete information about a user by ID

@@ -80,7 +80,15 @@ func (ctrl *UserController) Login(c *gin.Context) {
 func (ctrl *UserController) ListUsers(c *gin.Context) {
 	search := c.Query("search")
 
-	users, err := ctrl.userService.ListUsers(c.Request.Context(), search)
+	userIDVal, exists := c.Get("user_id")
+	var loggedInUserID string
+	if exists {
+		if idStr, ok := userIDVal.(string); ok {
+			loggedInUserID = idStr
+		}
+	}
+
+	users, err := ctrl.userService.ListUsers(c.Request.Context(), loggedInUserID, search)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list users: " + err.Error()})
 		return
